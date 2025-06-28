@@ -1,0 +1,57 @@
+(
+  # Loop through all relevant output directories
+  for d in ~/MerCBO/mercbo_* ~/MerCBO/opus_books_mercbo_*; do
+    if [ -d "$d" ]; then
+      # Find the CSV file inside the directory
+      csv_file=$(find "$d" -maxdepth 1 -type f -name "*.csv")
+      if [ -f "$csv_file" ]; then
+        # Extract the pattern name from the directory name
+        pattern_name=$(basename "$d" | sed -E 's/^(opus_books_)?mercbo_//' | sed -E 's/_emb.*//')
+        
+        # --- NEW LOGIC TO FIND THE MINIMUM PERPLEXITY ---
+        # 1. Skip the header row (`tail -n +2`)
+        # 2. Get just the second column (perplexity) (`cut -d',' -f2`)
+        # 3. Sort the numbers to find the smallest (`sort -n`)
+        # 4. Take just the first line, which is the minimum (`head -n 1`)
+        min_perplexity=$(tail -n +2 "$csv_file" | cut -d',' -f2 | sort -n | head -n 1)
+        
+        # Print the pattern and its true minimum perplexity
+        printf "%-15s %s\n" "$pattern_name" "$min_perplexity"
+      fi
+    fi
+  done
+) | sort -k2 -n
+
+
+
+
+How to See the Saved Output
+The file is located in the directory where you ran the command, which is ~/MerCBO/.
+
+Here are a few useful commands you can use to view the log file (you can run these in a new terminal or after detaching from your screen session):
+
+To view the live output as it happens (most useful):
+
+Bash
+
+tail -f ~/MerCBO/nas_run.log
+The -f (follow) flag will continuously display new lines as they are added to the file. Press Ctrl+C to stop watching.
+
+To view the entire file from the beginning (can be long):
+
+Bash
+
+less ~/MerCBO/nas_run.log
+This lets you scroll up and down through the entire history of the run. Press q to quit.
+
+To see just the last 100 lines of the log:
+
+Bash
+
+tail -n 100 ~/MerCBO/nas_run.log
+To search for specific lines, like each time a new evaluation starts:
+
+Bash
+
+grep "Evaluating Architecture" ~/MerCBO/nas_run.log
+You have set up the experiment perfectly for a long-running job. All your results and progress are being securely saved.
