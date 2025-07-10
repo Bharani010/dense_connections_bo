@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
-
 import torch
+
 from MerCBO.experiments.test_functions.experiment_configuration import ISING_GRID_H, ISING_GRID_W, \
     ISING_N_EDGES, CONTAMINATION_N_STAGES
 from MerCBO.experiments.test_functions.experiment_configuration import sample_init_points, \
@@ -93,8 +93,10 @@ class Ising(object):
     """
     Ising Sparsification Problem with the simplest graph
     """
-    def __init__(self, lamda, random_seed_pair=(None, None)):
+    def __init__(self, lamda, penalty_factor=1.0, random_seed_pair=(None, None)):
         self.lamda = lamda
+        # Store the penalty factor
+        self.penalty_factor = penalty_factor
         self.n_vertices = np.array([2] * ISING_N_EDGES)
         self.suggested_init = torch.empty(0).long()
         self.suggested_init = torch.cat([self.suggested_init, sample_init_points(self.n_vertices, 20 - self.suggested_init.size(0), random_seed_pair[1]).long()], dim=0)
@@ -128,7 +130,8 @@ class Ising(object):
         evaluation = ising_dense(interaction_sparsified=interaction_sparsified, interaction_original=self.interaction,
                                  covariance=self.covariance, log_partition_sparsified=log_partition_sparsified,
                                  log_partition_original=np.log(self.partition_original))
-        evaluation += self.lamda * float(torch.sum(x))
+        # Apply the penalty with the new factor
+        evaluation += self.lamda * float(torch.sum(x)) * self.penalty_factor
         return evaluation * x.new_ones((1,)).float()
 
 
