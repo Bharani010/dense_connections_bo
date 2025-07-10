@@ -1,5 +1,3 @@
-# File: /home/sveerepa/MerCBO/MerCBO/experiments/test_functions/EncoderBO.py
-
 import sys
 import pathlib
 import torch
@@ -21,7 +19,7 @@ class EncoderBO:
     It defines the entire search problem: what are the choices (the search space),
     and how do we get a score for any given choice (the evaluate method).
     """
-    def __init__(self):
+    def __init__(self, initial_data=None):
         # --- 1. Base Transformer Configuration ---
         self.base_cfg = get_config()
         self.base_cfg["num_epochs"] = 15
@@ -32,24 +30,34 @@ class EncoderBO:
         self.num_connections = (N + 1) * N // 2
         self.d_model_options = [64, 128, 256, 512]
         self.head_options = [2, 4, 8, 16]
-        
+
         self.n_vertices = (
             ([2] * self.num_connections) +
             [len(self.d_model_options)] +
             [len(self.head_options)]
         )
-        
+
         # --- 3. Graph Structures for MerCBO's Kernel ---
         self.adjacency_mat, self.fourier_freq, self.fourier_basis = self._build_graph_structures()
 
-        # --- 4. The Automated 16-Point Warm-Up ---
-        self.suggested_init = self._generate_warmup_points()
-        print(f"Generated {self.suggested_init.shape[0]} warm-up points for the BO.")
+        # --- 4. Handle Warm-Up Data ---
+        # This is the key change. If pre-computed data is passed, use it.
+        # Otherwise, generate the points and let MerCBO evaluate them.
+        if initial_data is not None:
+            print("INFO: [EncoderBO] Using pre-computed initial data provided by main.py.")
+            self.suggested_init = initial_data['eval_inputs']
+            self.initial_outputs = initial_data['eval_outputs']
+        else:
+            print("INFO: [EncoderBO] No pre-computed data found, generating new warm-up points.")
+            self.suggested_init = self._generate_warmup_points()
+            self.initial_outputs = None # This tells MerCBO to run the evaluations
+            print(f"Generated {self.suggested_init.shape[0]} warm-up points for the BO.")
+
 
     def _build_graph_structures(self):
         """A helper function to create the graph definition lists for MerCBO's kernel."""
         adj_mats, freqs, bases = [], [], []
-        
+
         adj2 = torch.tensor([[0., 1.], [1., 0.]], dtype=torch.float32)
         freq2 = torch.ones(2, dtype=torch.float32)
         basis2 = torch.eye(2, dtype=torch.float32)
@@ -57,19 +65,19 @@ class EncoderBO:
             adj_mats.append(adj2.clone())
             freqs.append(freq2.clone())
             bases.append(basis2.clone())
-            
+
         num_d_model_options = len(self.d_model_options)
         adj_d_model = torch.ones(num_d_model_options, num_d_model_options); adj_d_model.fill_diagonal_(0)
         adj_mats.append(adj_d_model)
         freqs.append(torch.arange(num_d_model_options, dtype=torch.float32) + 1)
         bases.append(torch.eye(num_d_model_options, dtype=torch.float32))
-        
+
         num_head_options = len(self.head_options)
         adj_heads = torch.ones(num_head_options, num_head_options); adj_heads.fill_diagonal_(0)
         adj_mats.append(adj_heads)
         freqs.append(torch.arange(num_head_options, dtype=torch.float32) + 1)
         bases.append(torch.eye(num_head_options, dtype=torch.float32))
-        
+
         return adj_mats, freqs, bases
 
     def _generate_warmup_points(self) -> torch.Tensor:
@@ -86,7 +94,7 @@ class EncoderBO:
                 if d_model % num_heads == 0:
                     init_vector = np.concatenate([seq_vector, [d_model_idx, head_idx]])
                     initial_points.append(torch.tensor(init_vector, dtype=torch.long))
-        
+
         return torch.stack(initial_points)
 
     def _vector_to_matrix(self, vector: np.ndarray) -> np.ndarray:
@@ -103,7 +111,6 @@ class EncoderBO:
         iu = np.triu_indices(N + 1, k=1)
         return matrix[iu]
 
-    # This method must be indented correctly to belong to the EncoderBO class
     def evaluate(self, x_vec: torch.Tensor) -> torch.Tensor:
         """
         This is the main function called by MerCBO for each trial.
@@ -113,7 +120,7 @@ class EncoderBO:
         connections_vector = x_vec[:self.num_connections].numpy().astype(int)
         d_model_idx = int(x_vec[self.num_connections].item())
         head_idx = int(x_vec[self.num_connections + 1].item())
-        
+
         d_model_val = self.d_model_options[d_model_idx]
         head_val = self.head_options[head_idx]
 
@@ -133,16 +140,16 @@ class EncoderBO:
         cfg["connections_matrix"] = connections_matrix
         cfg["d_models"] = [d_model_val]
         cfg["num_heads"] = head_val
-        
+
         arch_hash = hash(tuple(x_vec.numpy()))
         cfg["model_folder"] = f"nas_run_{arch_hash}"
         cfg["experiment_name"] = f"runs/nas/{arch_hash}"
-        
+
         with open("architecture_map.log", "a") as f:
             f.write(f"{arch_hash},{','.join(map(str, x_vec.numpy().tolist()))}\n")
 
         print(f"\n? Evaluating Architecture: d_model={d_model_val}, heads={head_val}, connections={connections_vector}")
-        
+
         perplexity = train_model(cfg)
 
         # 4. Return the score to MerCBO (negative perplexity for maximization).
